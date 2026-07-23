@@ -9,17 +9,22 @@ import (
 	"time"
 )
 
+type client struct {
+	events chan event
+	done   chan struct{}
+}
+
 func New() *Handler {
 	return &Handler{
 		m:        new(sync.Mutex),
-		requests: map[int64]chan event{},
+		requests: map[int64]client{},
 	}
 }
 
 type Handler struct {
 	m        *sync.Mutex
 	counter  int64
-	requests map[int64]chan event
+	requests map[int64]client
 }
 
 type event struct {
@@ -31,14 +36,14 @@ type event struct {
 func (s *Handler) Send(eventType string, data string) {
 	s.m.Lock()
 	defer s.m.Unlock()
-	for _, f := range s.requests {
-		f := f
-		go func(f chan event) {
-			f <- event{
-				Type: eventType,
-				Data: data,
+	for _, c := range s.requests {
+		c := c
+		go func(c client) {
+			select {
+			case c.events <- event{Type: eventType, Data: data}:
+			case <-c.done:
 			}
-		}(f)
+		}(c)
 	}
 }
 
@@ -50,15 +55,16 @@ func (s *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	id := atomic.AddInt64(&s.counter, 1)
-	s.m.Lock()
 	events := make(chan event)
-	s.requests[id] = events
+	done := make(chan struct{})
+	s.m.Lock()
+	s.requests[id] = client{events: events, done: done}
 	s.m.Unlock()
 	defer func() {
 		s.m.Lock()
-		defer s.m.Unlock()
 		delete(s.requests, id)
-		close(events)
+		s.m.Unlock()
+		close(done)
 	}()
 
 	timer := time.NewTimer(0)

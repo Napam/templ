@@ -274,7 +274,7 @@ func New(log *slog.Logger, scheme string, bind string, port int, target *url.URL
 	p := httputil.NewSingleHostReverseProxy(target)
 	p.ErrorLog = stdlog.New(os.Stderr, "Proxy to target error: ", 0)
 	p.Transport = &roundTripper{
-		maxRetries:      20,
+		maxRetries:      5,
 		initialDelay:    100 * time.Millisecond,
 		backoffExponent: 1.5,
 	}
@@ -362,7 +362,14 @@ func (rt *roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		// Execute the request.
 		resp, err = http.DefaultTransport.RoundTrip(req)
 		if err != nil || resp.StatusCode == http.StatusBadGateway {
-			time.Sleep(rt.initialDelay * time.Duration(math.Pow(rt.backoffExponent, float64(retries))))
+			if resp != nil {
+				resp.Body.Close()
+			}
+			select {
+			case <-time.After(rt.initialDelay * time.Duration(math.Pow(rt.backoffExponent, float64(retries)))):
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			}
 			continue
 		}
 
