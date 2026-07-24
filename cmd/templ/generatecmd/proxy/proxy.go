@@ -274,9 +274,16 @@ func New(log *slog.Logger, scheme string, bind string, port int, target *url.URL
 	p := httputil.NewSingleHostReverseProxy(target)
 	p.ErrorLog = stdlog.New(os.Stderr, "Proxy to target error: ", 0)
 	p.Transport = &roundTripper{
-		maxRetries:      5,
+		maxRetries:      20,
 		initialDelay:    100 * time.Millisecond,
-		backoffExponent: 1.5,
+		backoffExponent: 1.2,
+	}
+	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, `<!DOCTYPE html><html><head><title>proxy: upstream down</title>
+<meta http-equiv="refresh" content="1"></head>
+<body><pre>upstream unavailable — retrying…</pre></body></html>`)
 	}
 	h = &Handler{
 		log:    log,
