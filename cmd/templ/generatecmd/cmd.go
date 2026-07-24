@@ -174,9 +174,14 @@ func (cmd Generate) Run(ctx context.Context) (err error) {
 		}
 	}
 
-	// Clean up temporary watch mode text files.
-	if err := cmd.deleteWatchModeTextFiles(); err != nil {
-		cmd.Log.Warn("Failed to delete watch mode text files", slog.Any("error", err))
+	// Clean up temporary watch mode text files. Only do this for watch
+	// sessions: a one-off generate must not delete the text files of a
+	// dev session that is still running, since its server renders from
+	// them (missing files make every page render as an empty response).
+	if cmd.Args.Watch {
+		if err := cmd.deleteWatchModeTextFiles(); err != nil {
+			cmd.Log.Warn("Failed to delete watch mode text files", slog.Any("error", err))
+		}
 	}
 
 	// Check for errors after everything has completed.

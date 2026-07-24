@@ -260,7 +260,11 @@ func (h *FSEventHandler) generate(ctx context.Context, fileName string) (result 
 		h.Log.Debug("Writing development mode text file", slog.String("file", fileName), slog.String("output", txtFileName))
 		joined := strings.Join(generatorOutput.Literals, "\n")
 		txtHash := sha256.Sum256([]byte(joined))
-		if h.hashes.CompareAndSwap(txtFileName, syncmap.UpdateIfChanged, txtHash) {
+		// Rewrite the file if the literals changed, or if it vanished from
+		// disk (deleted externally) — otherwise the running dev server keeps
+		// rendering empty pages until the literals happen to change.
+		_, statErr := os.Stat(txtFileName)
+		if h.hashes.CompareAndSwap(txtFileName, syncmap.UpdateIfChanged, txtHash) || statErr != nil {
 			if err = os.WriteFile(txtFileName, []byte(joined), 0o644); err != nil {
 				return result, nil, fmt.Errorf("failed to write string literal file %q: %w", txtFileName, err)
 			}
